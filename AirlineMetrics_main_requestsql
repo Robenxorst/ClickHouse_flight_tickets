@@ -1,52 +1,39 @@
--- Выполним несколько ad-hoc запросов для получения дополнительной информации;
--- Хотим добавить таблицу flight statuses, чтобы узнать о задержках рейсов (OTP - насколько рейс задержался);
+-- 1 запрос: Хотим узнать о задержках рейсов (OTP - насколько рейс задержался);
+-- Для этого используем таблицу flight_statuses;
 
 WITH
     dateDiff('minute', f.scheduled_departure, fs.actual_departure) AS delay_minutes
-
-select
-	-- маршрут
-    concat(f.departure_airport, ' - ', f.arrival_airport) AS route,
 	
-    -- город вылета и назначения
+select
+    concat(f.departure_airport, ' - ', f.arrival_airport) AS route,
     dictGetString('airports_dict', 'city', f.departure_airport) AS dep_city,
     dictGetString('airports_dict', 'city', f.arrival_airport) AS arr_city,
-	
-    -- общее количество полетов
     count() AS total_flights,
-
-    -- Процент рейсов, вылетевших вовремя. 
-    -- Считаем, что рейс вылетел вовремя, если задержка не превышает 15 мин.
-    
+    -- Процент рейсов, вылетевших вовремя. Считаем, что рейс вылетел вовремя, если задержка не превышает 15 мин.
     countIf(delay_minutes <= 15) / count() AS otp,
-
     -- средняя задержка (только > 0)
     avgIf(delay_minutes, delay_minutes > 0) AS avg_delay,
-
     -- отменённые рейсы
     countIf(fs.status = 'Cancelled') AS cancelled_flights
-
 FROM flights f
 LEFT JOIN flight_statuses fs
     ON f.flight_id = fs.flight_id
-
-    -- смотрим данные отдельно за сентябрь
+-- смотрим данные отдельно за сентябрь
 WHERE f.departure_date >= '2015-11-01'
   AND f.departure_date < '2016-09-01'
   and fs.status = 'Cancelled'
-
 GROUP BY
     route,
     dep_city,
     arr_city
-
 ORDER by
 -- сортируем по возрастанию OTP, 
 -- чтобы все самое проблемное было вверху
     otp ASC;
 
--- общий SQL-запрос к витрине
--- со всеми метриками
+
+
+-- Запрос 2: Общий SQL-запрос к витрине со всеми метриками
 
 WITH
     dateDiff('minute', f.scheduled_departure, fs.actual_departure) AS delay_minutes,
