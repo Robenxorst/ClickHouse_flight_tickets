@@ -1,6 +1,5 @@
--- Создаем словари для Airports и Aircrafts;
+-- 1 этап. Создаем словари для Airports и Aircrafts;
 
--- рассмотрим исходные словари с данными
 SHOW CREATE TABLE clickhouse_data.airports;
 SHOW CREATE TABLE clickhouse_data.aircrafts;
 
@@ -46,7 +45,7 @@ LIFETIME(MIN 3600 MAX 7200);
 select * from airports_dict limit 10;
 
 
--- Задание 2. Создание материализированных представлений для flights и flight_statuses
+-- Этап 2. Создание материализированных представлений для flights и flight_statuses
 SHOW CREATE TABLE clickhouse_data.flights;
 show create table clickhouse_data.flight_statuses;
 
@@ -67,8 +66,9 @@ create table flights_raw ON CLUSTER 'all-replicated'
     `aircraft_code` LowCardinality(String)
 )
 ENGINE = ReplicatedMergeTree(
-    '/clickhouse/tables/global/{database}/{table}', -- Путь в Keeper
-    '{replica}'                                  -- универсальный вариант создания
+	-- Путь в ZooKeeper
+    '/clickhouse/tables/global/{database}/{table}',
+    '{replica}'                                  
 )
 ORDER BY flight_id;
 
@@ -85,30 +85,26 @@ create table flights ON CLUSTER 'all-replicated'
     arrival_airport LowCardinality(String),
     aircraft_code LowCardinality(String),
     
-    -- Материализованный столбец, автоматич 
-    -- рассчитывается при insert
+    -- Материализованный столбец, рассчитывается при insert
     -- В Select следует указывать его явно
     departure_date Date materialized toDate(scheduled_departure),
     -- дистанция между двумя аэропортами
     distance_km Float64,
     -- ask - это метрика вместимости на расстояние;
     ask Float64,
+	
     -- дополнительно используем служебный столбец
     inserted_at DateTime DEFAULT now()
 )
 ENGINE = ReplicatedMergeTree(
-    '/clickhouse/tables/global/{database}/{table}', -- Путь в Keeper
-    '{replica}'                                     -- универсальный вариант создания
+    '/clickhouse/tables/global/{database}/{table}',
+    '{replica}'
 )
 ORDER BY (flight_no, departure_date);
 
 -- создадим материализованное представление для
 -- быстрого заполнения данных из flights_raw во flights.
-
--- При этом, материализованное представление - это просто триггер, 
--- который реагирует на INSERT в таблицу источник.
-
--- Замечание: все нужное у нас уже есть в словарях
+-- Заметка: все нужное уже есть в словарях.
 
 CREATE MATERIALIZED VIEW flights_mv on cluster 'all-replicated'
 to flights as 
@@ -133,9 +129,6 @@ from flights_raw;
 -- дропнули созданную БД
 --DROP VIEW flights_mv ON CLUSTER 'all-replicated';
 
--- похоже, что таблица airports существует не на всех серверах кластера.
-select * from airports_dict;
-
 -- вставляем несколько строк в flights_raw
 INSERT INTO flights_raw
 SELECT * FROM clickhouse_data.flights
@@ -143,12 +136,11 @@ LIMIT 20;
 
 -- посмортим сработало ли mv
 select * from flights;
--- Там как раз 20 строчек. Расстояния считаются достаточно корректно
+-- Имеем 20 строчек. Расстояния считаются корректно
 
 
--- Создадим таблицу аналогичную flight_statuses
+-- Создадим таблицу аналогичным образом для flight_statuses
 SHOW CREATE TABLE clickhouse_data.flight_statuses;
-
 
 create table flight_statuses ON CLUSTER 'all-replicated'
 (
@@ -162,8 +154,7 @@ create table flight_statuses ON CLUSTER 'all-replicated'
     -- служебный столбец для определения актуальности записи
     updated_at DateTime DEFAULT now()
 )
--- используем движок убирающий дубли,
--- который будет при этом реплицирован
+-- используем реплицированый движок убирающий дубли
 ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/global/{database}/{table}',
     '{replica}',
@@ -185,7 +176,6 @@ TRUNCATE TABLE flights ON CLUSTER 'all-replicated';
 INSERT INTO flight_statuses
 SELECT *, now() as updated_at FROM clickhouse_data.flight_statuses;
 
-
 select * from flights_raw;
 
 INSERT INTO flights_raw
@@ -193,7 +183,5 @@ SELECT * FROM clickhouse_data.flights;
 
 -- подтянулось ли через VIEW ?
 select COUNT() from flights;
-
--- Итог: задача выполнена!!!
 
 
